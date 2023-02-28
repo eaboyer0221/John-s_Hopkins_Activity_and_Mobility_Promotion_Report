@@ -1,0 +1,1258 @@
+/********************************************************************************************************
+ * (PROCEDURE/FUNCTION/VIEW):     MINDS ASSESSMENT with Dept where Assessment taken Added                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *
+ * PARAMETERS:All patients that received a MINDS Assessment (inpatient and observation)                                                                                          *
+ *                                                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *
+ * Created by:    Emily Boyer                                  Created on: 05/21/2021                   *
+ *                                                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *
+ ********************************************************************************************************/
+
+
+ USE [CDW]
+
+
+drop table if exists #MINDS
+drop table if exists #MINDSDEPT
+drop table if exists #MAX_SCORE
+drop table if exists #INITIAL_SCORE
+drop table if exists #MINDS_with_scores
+drop table if exists #MAXSCORE_WITH_TAKENINSTANT
+drop table if exists #MAXSCORE_WITH_FIRST_TAKENINSTANT
+drop table if exists #InitialMINDSDEPT
+drop table if exists #MAXMINDSDEPT
+drop table if exists #AdmitMINDSDEPT
+drop table if exists #Intubation
+drop table if exists #MINDSwithAdmitDept
+drop table if exists #MINDSwithLOCChange
+drop table if exists #MINDSwithLOCChange2
+drop table if exists #MINDSwithLOCChange2_EncounterLevel
+---------------------------------------------------------------
+--  Pull MINDS ASSESSMENT INSTANCES
+---------------------------------------------------------------
+
+CREATE TABLE #MINDS
+
+(
+EncounterEpicCsn			bigint not null,
+PrimaryMrn					bigint not null,
+AdmissionInstant			datetime null,
+DischargeInstant			datetime null,
+--DateKey						bigint not null,
+TimeOfDayKey				bigint not null,
+TakenInstant				datetime null,
+Value						bigint not null,
+Name						nvarchar(50) not null,
+DisplayName					nvarchar(300) not null,
+FlowsheetRowEpicId			nvarchar(50) not null,
+--AdmissionDateKey			varchar(8),
+AdmitDate					date null,
+--AdmitDeptAbbr				nvarchar(50) not null,
+AdmitDeptName				nvarchar(300) null,
+--DepartmentAbbreviation		nvarchar(50) not null,
+--DischargeDateKey						bigint,
+DischargeDate				date null,
+DischargeDeptName              nvarchar(300) null,
+DischargeDisposition       nvarchar(300),
+LocationAbbreviation		nvarchar(50) null,
+LocationName				nvarchar (100) null,
+LengthOfStay				bigint null,
+Encounter_Count						tinyint not null,
+)
+
+INSERT INTO #MINDS (
+EncounterEpicCsn			
+,PrimaryMrn	
+,AdmissionInstant
+,DischargeInstant
+--,DateKey						
+,TimeOfDayKey				
+,TakenInstant				
+,Value						
+,Name						
+,DisplayName					
+,FlowsheetRowEpicId
+--,AdmissionDateKey
+,AdmitDate
+--,AdmitDeptAbbr				
+--,AdmitDeptName
+--,DischargeDateKey
+,DischargeDate
+--,DepartmentAbbreviation		
+,DischargeDeptName
+,DischargeDisposition
+,LocationAbbreviation		
+,LocationName
+,LengthOfStay
+,Encounter_Count
+)
+
+SELECT DISTINCT
+    Encounter.EncounterEpicCsn
+	,Pat.PrimaryMrn
+	,Encounter.AdmissionInstant
+	,Encounter.DischargeInstant
+	--,FlowsheetValue.DateKey
+	,FlowsheetValue.TimeOfDayKey
+    ,FlowsheetValue.TakenInstant
+	,FlowsheetValue.Value
+	,Flowsheetrow.Name
+	,FlowsheetRow.DisplayName
+	,FlowsheetRow.FlowsheetRowEpicId
+	--,Encounter.AdmissionDateKey
+	,datedim.DateValue as AdmitDate
+	--,AdmitDep.DepartmentAbbreviation
+	--,AdmitDep.DepartmentName
+	--,Encounter.DischargeDateKey
+	,dcdatedim.DateValue
+	--,DCDep.DepartmentAbbreviation
+	,DCDep.DepartmentName as DischargeDeptName
+	,Encounter.DischargeDisposition
+	,Dep.LocationAbbreviation
+	,Dep.LocationName
+	, CASE DATEDIFF(DAY, datedim.DateValue,dcdatedim.DateValue)
+			WHEN 0 THEN 1
+            ELSE DATEDIFF(DAY, datedim.DateValue,dcdatedim.DateValue)
+	 END as LengthOfStay
+	 ,Encounter.Count
+
+FROM
+    CDW.dbo.FlowsheetValueFact AS FlowsheetValue
+    INNER JOIN CDW.dbo.EncounterFact AS Encounter ON FlowsheetValue.EncounterKey=Encounter.EncounterKey
+	LEFT JOIN CDW.dbo.PatientDim as Pat ON Encounter.PatientKey = Pat.PatientKey
+    INNER JOIN CDW.dbo.FlowsheetRowDim AS FlowsheetRow ON FlowsheetValue.FlowsheetRowKey=FlowsheetRow.FlowsheetRowKey
+    INNER JOIN CDW.dbo.FlowsheetTemplateDim AS FlowsheetTemplate ON FlowsheetValue.FlowsheetTemplateKey=FlowsheetTemplate.FlowsheetTemplateKey
+	INNER JOIN CDW.dbo.DateDim AS datedim ON Encounter.AdmissionDateKey=datedim.DateKey
+	INNER JOIN CDW.dbo.DateDim AS dcdatedim ON Encounter.DischargeDateKey=dcdatedim.DateKey
+	LEFT JOIN CDW.dbo.HospitalAdmissionFact AS Loc ON Encounter.EncounterKey = Loc.EncounterKey
+	LEFT JOIN CDW.dbo.DepartmentDim as Dep ON Encounter.DepartmentKey = Dep.DepartmentKey
+	LEFT JOIN CDW.dbo.DepartmentDim as DCDep ON Encounter.DepartmentKey = DCDep.DepartmentKey
+
+WHERE
+    --Pat.PrimaryMrn='3630220'
+    --AND FlowsheetTemplate.FlowsheetTemplateKey in (1421,2061,2133,1426)
+    FlowsheetValue.DateKey >= 20210628
+	and FlowsheetRow.FlowsheetRowEpicId in ( '1605463')
+	and Encounter.DischargeDisposition <> 'Still a Patient'
+	and Encounter.DischargeDateKey <> -1
+	and Encounter.EncounterEpicCsn IS NOT NULL
+
+ORDER BY
+    Encounter.EncounterEpicCsn
+	,FlowsheetValue.TakenInstant
+
+--------------------
+--Test ED Encounter
+--------------------
+/*SELECT * FROM #MINDS
+WHERE EncounterEpicCsn=216492059*/
+
+
+/*SELECT *
+FROM CDW.dbo.FlowsheetValueFact AS FlowsheetValue
+    INNER JOIN CDW.dbo.EncounterFact AS Encounter ON FlowsheetValue.EncounterKey=Encounter.EncounterKey
+	INNER JOIN CDW.dbo.FlowsheetRowDim AS FlowsheetRow ON FlowsheetValue.FlowsheetRowKey=FlowsheetRow.FlowsheetRowKey
+    INNER JOIN CDW.dbo.FlowsheetTemplateDim AS FlowsheetTemplate ON FlowsheetValue.FlowsheetTemplateKey=FlowsheetTemplate.FlowsheetTemplateKey
+WHERE EncounterEpicCsn=216491614 and FlowsheetRow.FlowsheetRowEpicId in ( '1605463')
+ORDER BY EncounterEpicCsn, TakenInstant*/
+
+---------------------------------------------------------------
+--  Pull All Event Instances and Corresponding Departments
+---------------------------------------------------------------
+
+CREATE TABLE #MINDSDEPT
+
+(
+PatientEventCSN						nvarchar(50) not null,
+DepartmentKey						bigint not null,
+EventInstant						datetime null,
+Count								tinyint not null
+)
+
+INSERT INTO #MINDSDEPT
+
+SELECT DISTINCT
+    Event.PatientEventCSN
+	,Event.DepartmentKey
+	,Event.RecordedInstant
+	,Event.Count
+FROM
+    CDW.dbo.EventFactX AS Event
+
+WHERE
+    Event.EventDateKey >= 20210628
+	AND Event.RecordedInstant IS NOT NULL
+	AND Event.DepartmentKey <> -1
+
+---------------------------------------------------------------
+--  JOIN ASSESSMENTS AND EVENT DEPARTMENTS
+--  Identify the events and departments closest to admissioninstant
+
+--Create Table with Admit Dept
+---------------------------------------------------------------
+
+CREATE TABLE #AdmitMINDSDEPT
+
+(
+EncounterEpicCsn						nvarchar(50) not null,
+AdmitDepartment						nvarchar(300) not null,
+rowNum								tinyint not null
+)
+
+;WITH Admit_MINDS_W_DEPT AS
+
+(
+
+	SELECT
+	m.EncounterEpicCsn
+	,dd.DepartmentName
+	,ROW_NUMBER() OVER (PARTITION BY m.EncounterEpicCSN, m.AdmissionInstant ORDER BY ABS(DATEDIFF(mi, m.AdmissionInstant, d.EventInstant))) AS rowNum
+
+	FROM #MINDS m
+	INNER JOIN #MINDSDEPT d ON m.EncounterEpicCsn = d.PatientEventCSN
+	INNER JOIN DepartmentDim dd ON d.DepartmentKey = dd.DepartmentKey
+
+)
+
+INSERT INTO #AdmitMINDSDEPT
+
+SELECT
+
+	EncounterEpicCsn
+	,DepartmentName as AdmitDepartment
+	,rowNum
+
+FROM Admit_MINDS_W_DEPT
+
+WHERE rowNum = 1
+
+ORDER BY 
+EncounterEpicCsn
+
+-------------------------------------------------------------------
+-- combine admit dept with minds table
+-------------------------------------------------------------------
+CREATE TABLE #MINDSwithAdmitDept
+
+(
+EncounterEpicCsn			bigint not null,
+PrimaryMrn					bigint not null,
+AdmissionInstant			datetime null,
+DischargeInstant			datetime null,
+TimeOfDayKey				bigint not null,
+TakenInstant				datetime null,
+Value						bigint not null,
+Name						nvarchar(50) not null,
+DisplayName					nvarchar(300) not null,
+FlowsheetRowEpicId			nvarchar(50) not null,
+AdmitDate					date null,
+AdmitDepartment				nvarchar(300) null,
+DischargeDate				date null,
+DischargeDeptName              nvarchar(300) null,
+DischargeDisposition       nvarchar(300),
+LocationAbbreviation		nvarchar(50) null,
+LocationName				nvarchar (100) null,
+LengthOfStay				bigint null,
+Encounter_Count						tinyint not null,
+)
+
+INSERT INTO #MINDSwithAdmitDept (
+EncounterEpicCsn			
+,PrimaryMrn	
+,AdmissionInstant
+,DischargeInstant					
+,TimeOfDayKey				
+,TakenInstant				
+,Value						
+,Name						
+,DisplayName					
+,FlowsheetRowEpicId
+,AdmitDate
+,AdmitDepartment
+,DischargeDate	
+,DischargeDeptName
+,DischargeDisposition
+,LocationAbbreviation		
+,LocationName
+,LengthOfStay
+,Encounter_Count
+)
+
+SELECT DISTINCT
+    m.EncounterEpicCsn
+	,m.PrimaryMrn
+	,m.AdmissionInstant
+	,m.DischargeInstant
+	,m.TimeOfDayKey
+    ,m.TakenInstant
+	,m.Value
+	,m.Name
+	,m.DisplayName
+	,m.FlowsheetRowEpicId
+	,m.AdmitDate
+	,am.AdmitDepartment
+	,m.DischargeDate
+	,m.DischargeDeptName
+	,m.DischargeDisposition
+	,m.LocationAbbreviation
+	,m.LocationName
+	, m.LengthOfStay
+	 ,m.Encounter_Count
+
+
+FROM #MINDS m
+	INNER JOIN #AdmitMINDSDEPT am ON m.EncounterEpicCsn = am.EncounterEpicCsn
+
+	--Select * from #MINDSwithAdmitDept
+---------------------------------------------------------------
+--  Pull MAX Minds Assessment Scores Per CSN
+---------------------------------------------------------------
+CREATE TABLE #MAX_SCORE
+
+(
+EncounterEpicCsn			bigint not null,
+Value						bigint not null,
+--TakenInstant				datetime null
+)
+
+INSERT INTO #MAX_SCORE (
+EncounterEpicCsn							
+,Value
+--,TakenInstant
+)
+
+SELECT EncounterEpicCsn, /*TakenInstant, */ MAX(Value) as MaxScore
+	FROM #MINDS
+	Group BY EncounterEpicCsn
+
+-----------------------------------------------------------
+--Create table with all taken instances for max scores
+-----------------------------------------------------------
+
+CREATE TABLE #MAXSCORE_WITH_TAKENINSTANT
+
+(
+EncounterEpicCsn			bigint not null,
+TakenInstant				datetime null,
+Value						bigint not null,
+)
+
+INSERT INTO #MAXSCORE_WITH_TAKENINSTANT (
+EncounterEpicCsn						
+,TakenInstant				
+,Value						
+)
+
+
+SELECT DISTINCT
+    MS.EncounterEpicCsn
+    ,Encounters.TakenInstant
+	,MS.Value
+	
+FROM
+    #MINDS AS Encounters
+    INNER JOIN #MAX_SCORE AS MS ON Encounters.EncounterEpicCsn=MS.EncounterEpicCsn
+
+WHERE 
+Encounters.Value=MS.Value
+
+
+--SELECT * from #MAXSCORE_WITH_TAKENINSTANT
+
+---------------------------------------------------------------
+--  Pull FIRST TAKENINSTANT associated with a max score
+---------------------------------------------------------------
+--drop table if exists #MAXSCORE_WITH_FIRST_TAKENINSTANT
+CREATE TABLE #MAXSCORE_WITH_FIRST_TAKENINSTANT
+
+(
+EncounterEpicCsn			bigint not null,
+TakenInstant				datetime null,
+Value						bigint not null,
+rowNum						tinyint not null
+)
+
+INSERT INTO #MAXSCORE_WITH_FIRST_TAKENINSTANT (
+EncounterEpicCsn						
+,TakenInstant				
+,Value	
+,rowNUm
+)
+	
+SELECT EncounterEpicCsn,TakenInstant, Value,  rowNum FROM(
+SELECT EncounterEpicCsn,TakenInstant, Value,	 ROW_NUMBER() OVER (PARTITION BY #MAXSCORE_WITH_TAKENINSTANT.EncounterEpicCSN ORDER BY (TakenInstant)) AS rowNum
+	FROM #MAXSCORE_WITH_TAKENINSTANT) as grouped1
+
+WHERE grouped1.rowNum = 1
+
+--SELECT * FROM #MAXSCORE_WITH_FIRST_TAKENINSTANT
+
+
+---------------------------------------------------------------
+--  Pull Initial MINDS Assessment Scores Per CSN
+---------------------------------------------------------------
+
+CREATE TABLE #INITIAL_SCORE
+
+(
+EncounterEpicCsn			bigint not null,
+Value						bigint not null,
+TakenInstant				datetime null,
+rowNum						tinyint not null
+)
+
+INSERT INTO #INITIAL_SCORE (
+EncounterEpicCsn							
+,Value
+,TakenInstant
+,rowNUm
+)
+
+SELECT EncounterEpicCsn, Value, TakenInstant, rowNum FROM(
+SELECT EncounterEpicCsn, Value,	TakenInstant, ROW_NUMBER() OVER (PARTITION BY #MINDS.EncounterEpicCSN ORDER BY (TakenInstant)) AS rowNum
+	FROM #MINDS) as grouped
+
+WHERE grouped.rowNum = 1
+
+--SELECT * FROM #INITIAL_SCORE
+
+---------------------------------------------------------------
+--  Combine #MINDS with #INITIAL_SCORE && #MAX_SCORE
+---------------------------------------------------------------
+
+CREATE TABLE #MINDS_with_scores
+
+(
+EncounterEpicCsn			bigint not null,
+PrimaryMrn					bigint not null,
+AdmissionInstant			datetime null,
+DischargeInstant			datetime null,
+TimeOfDayKey				bigint not null,
+TakenInstant				datetime null,
+Value						bigint not null,
+Name						nvarchar(50) not null,
+DisplayName					nvarchar(300) not null,
+FlowsheetRowEpicId			nvarchar(50) not null,
+AdmitDate					date null,
+AdmitDepartment				nvarchar(300) null,
+DischargeDate				date null,
+DischargeDeptName              nvarchar(300) null,
+DischargeDisposition       nvarchar(300),
+LocationAbbreviation		nvarchar(50) null,
+LocationName				nvarchar (100) null,
+LengthOfStay				bigint null,
+InitialScore				bigint not null,
+InitialTakenInstant			datetime null,
+MaxScore					bigint not null,
+MaxTakenInstant				datetime null,
+Encounter_Count				tinyint not null,
+)
+
+
+INSERT INTO #MINDS_with_scores (
+EncounterEpicCsn			
+,PrimaryMrn	
+,AdmissionInstant
+,DischargeInstant					
+,TimeOfDayKey				
+,TakenInstant				
+,Value						
+,Name						
+,DisplayName					
+,FlowsheetRowEpicId
+,AdmitDate
+,AdmitDepartment
+,DischargeDate	
+,DischargeDeptName
+,DischargeDisposition
+,LocationAbbreviation		
+,LocationName
+,LengthOfStay
+,InitialScore
+,InitialTakenInstant 
+,MaxScore
+,MaxTakenInstant 
+,Encounter_Count
+)
+
+SELECT DISTINCT
+	m.EncounterEpicCsn
+	,m.PrimaryMrn
+	,m.AdmissionInstant
+	,m.DischargeInstant
+	,m.TimeOfDayKey
+    ,m.TakenInstant
+	,m.Value
+	,m.Name
+	,m.DisplayName
+	,m.FlowsheetRowEpicId
+	,m.AdmitDate
+	,m.AdmitDepartment
+	,m.DischargeDate
+	,m.DischargeDeptName
+	,m.DischargeDisposition
+	,m.LocationAbbreviation
+	,m.LocationName
+	,m.LengthOfStay
+	,si.Value  as InitialScore
+	,si.TakenInstant as InitialTakenInstant
+	,sm.Value as MaxScore
+	,sm.TakenInstant as MaxTakenInstant
+	,m.Encounter_Count
+
+FROM #MINDSwithAdmitDept m
+	INNER JOIN #MAXSCORE_WITH_FIRST_TAKENINSTANT sm ON m.EncounterEpicCsn = sm.EncounterEpicCsn
+	INNER JOIN #INITIAL_SCORE si ON m.EncounterEpicCsn = si.EncounterEpicCsn
+
+/*SELECT *
+FROM #MINDS_with_scores
+order by EncounterEpicCSN, TakenInstant ASC*/
+
+
+---------------------------------------------------------------
+--  JOIN ASSESSMENTS AND EVENT DEPARTMENTS
+--  Identify the events and assessment times that are closest in order to capture the department where assessment was taken
+
+--Create Table with Dept where Initial Score was taken
+---------------------------------------------------------------
+
+CREATE TABLE #InitialMINDSDEPT
+
+(
+EncounterEpicCsn						nvarchar(50) not null,
+InitialDepartment						nvarchar(300) not null,
+rowNum								tinyint not null
+)
+
+;WITH Initial_MINDS_W_DEPT AS
+
+(
+
+	SELECT
+	m.EncounterEpicCsn
+	,dd.DepartmentName
+	,ROW_NUMBER() OVER (PARTITION BY m.EncounterEpicCSN, m.InitialTakenInstant ORDER BY ABS(DATEDIFF(mi, m.InitialTakenInstant, d.EventInstant))) AS rowNum
+
+	FROM #MINDS_with_scores m
+	INNER JOIN #MINDSDEPT d ON m.EncounterEpicCsn = d.PatientEventCSN
+	INNER JOIN DepartmentDim dd ON d.DepartmentKey = dd.DepartmentKey
+
+)
+
+INSERT INTO #InitialMINDSDEPT
+
+SELECT
+
+	EncounterEpicCsn
+	,DepartmentName as InitialDepartment
+	,rowNum
+
+FROM Initial_MINDS_W_DEPT
+
+WHERE rowNum = 1
+
+ORDER BY 
+EncounterEpicCsn
+
+--select * FROM #InitialMINDSDEPT
+---------------------------------------------------------------
+--Create Table with Dept where Max Score was taken
+---------------------------------------------------------------
+
+CREATE TABLE #MAXMINDSDEPT
+
+(
+EncounterEpicCsn						nvarchar(50) not null,
+MaxDepartment						nvarchar(300) not null,
+rowNum								tinyint not null
+)
+
+;WITH Max_MINDS_W_DEPT AS
+
+(
+
+	SELECT
+	m.EncounterEpicCsn
+	,dd.DepartmentName
+	,ROW_NUMBER() OVER (PARTITION BY m.EncounterEpicCSN, m.MaxTakenInstant ORDER BY ABS(DATEDIFF(mi, m.MaxTakenInstant, d.EventInstant))) AS rowNum
+
+	FROM #MINDS_with_scores m
+	INNER JOIN #MINDSDEPT d ON m.EncounterEpicCsn = d.PatientEventCSN
+	INNER JOIN DepartmentDim dd ON d.DepartmentKey = dd.DepartmentKey
+
+)
+
+INSERT INTO #MAXMINDSDEPT
+
+SELECT
+
+	EncounterEpicCsn
+	,DepartmentName as MaxDepartment
+	,rowNum
+
+FROM Max_MINDS_W_DEPT
+
+WHERE rowNum = 1
+
+ORDER BY 
+EncounterEpicCsn
+
+--Select * FROM #MAXMINDSDEPT
+
+
+-----------------------------------------------------
+-----Intubation
+-----------------------------------------------------
+/*SELECT DISTINCT 
+    Encounter.EncounterEpicCsn
+	,FlowsheetValue.DateValue
+	,FlowsheetValue.DateKey
+	,FlowsheetValue.TimeOfDayKey
+	,FlowsheetValue.Value
+	,flowsheetrow.Name
+	,FlowsheetRow.DisplayName
+	,FlowsheetRow.FlowsheetRowEpicId
+FROM
+    CDW.dbo.FlowsheetValueFact AS FlowsheetValue
+    INNER JOIN CDW.dbo.EncounterFact AS Encounter ON FlowsheetValue.EncounterKey=Encounter.EncounterKey
+    INNER JOIN CDW.dbo.FlowsheetRowDim AS FlowsheetRow ON FlowsheetValue.FlowsheetRowKey=FlowsheetRow.FlowsheetRowKey
+    INNER JOIN CDW.dbo.FlowsheetTemplateDim AS FlowsheetTemplate ON FlowsheetValue.FlowsheetTemplateKey=FlowsheetTemplate.FlowsheetTemplateKey
+WHERE
+        FlowsheetValue.DateKey >= 20210501
+	and FlowsheetRow.FlowsheetRowEpicId in ( 
+                 '3044500049' --R UCH IP RT PEDS TRACHEAL (ET) TUBE INTUBATION PROCEDURE
+                ,'3045000460' --R UCH IP DOUBLE LUMEN TRACHEAL (ET) TUBE INTUBATION PROCEDURE
+                ,'3045000120')	--R UCH IP TRACHEAL (ET) TUBE INTUBATION PROCEDURE)
+ORDER BY
+    FlowsheetValue.DateKey
+    ,FlowsheetValue.TimeOfDayKey*/
+
+drop table if exists #Intubation
+
+CREATE TABLE #Intubation
+
+(
+EncounterEpicCsn			bigint not null,
+Intubation					tinyint not null,
+)
+
+
+/*INSERT INTO #Intubation (
+EncounterEpicCsn			
+,Intubation
+)*/
+;with IntList as (
+SELECT 
+	Encounter.EncounterEpicCsn
+	,Count(*) as Intubation
+FROM
+    CDW.dbo.FlowsheetValueFact AS FlowsheetValue
+    INNER JOIN CDW.dbo.EncounterFact AS Encounter ON FlowsheetValue.EncounterKey=Encounter.EncounterKey
+    INNER JOIN CDW.dbo.FlowsheetRowDim AS FlowsheetRow ON FlowsheetValue.FlowsheetRowKey=FlowsheetRow.FlowsheetRowKey
+    INNER JOIN CDW.dbo.FlowsheetTemplateDim AS FlowsheetTemplate ON FlowsheetValue.FlowsheetTemplateKey=FlowsheetTemplate.FlowsheetTemplateKey
+WHERE
+        FlowsheetValue.DateKey >= 20210628
+	and FlowsheetRow.FlowsheetRowEpicId in ( 
+                 '3044500049' --R UCH IP RT PEDS TRACHEAL (ET) TUBE INTUBATION PROCEDURE
+                ,'3045000460' --R UCH IP DOUBLE LUMEN TRACHEAL (ET) TUBE INTUBATION PROCEDURE
+                ,'3045000120')	--R UCH IP TRACHEAL (ET) TUBE INTUBATION PROCEDURE)
+GROUP BY
+	Encounter.EncounterEpicCsn
+
+   )
+INSERT INTO #Intubation
+
+SELECT 
+EncounterEpicCsn
+, CASE 
+	WHEN Intubation > 0 
+	THEN 1 
+	ELSE 0 
+END AS Intubation
+
+from IntList
+
+ORDER BY EncounterEpicCsn, Intubation
+
+--------------------------------------------------------------
+-- Level of Care Change (MedSurg to ICU/PCU)
+--------------------------------------------------------------
+drop table if exists #MINDSwithLOCChange
+
+CREATE TABLE #MINDSwithLOCChange
+
+(
+EncounterEpicCsn			bigint not null,
+StartInstant				datetime,
+EndInstant					datetime,
+LevelOfCare					nvarchar(300) not null,
+RoomName					nvarchar(200) not null,
+HospitalService				nvarchar(300) not null,
+CensusLocationKey			bigint,
+DepartmentName				nvarchar(300)
+
+)
+
+INSERT INTO #MINDSwithLOCChange (
+EncounterEpicCsn,
+StartInstant,		
+EndInstant,							
+LevelOfCare,
+RoomName,
+HospitalService,
+CensusLocationKey,
+DepartmentName
+
+)
+
+SELECT DISTINCT
+    m.EncounterEpicCsn,
+	pe.StartInstant,			
+	pe.EndInstant,								
+	pe.LevelOfCare,
+	pe.RoomName,
+	pe.HospitalService,
+	pe.CensusLocationKey,
+	dep.DepartmentName
+
+
+FROM #MINDS m
+	INNER JOIN PatientEventFactX pe ON m.EncounterEpicCsn = pe.PatientEncounterCSNId
+	LEFT JOIN DepartmentDim dep ON pe.CensusLocationKey = dep.DepartmentKey
+
+	/*SELECT * from #MINDSwithLOCChange
+	WHERE EncounterEpicCsn IN ('221561865', '221756040', '222206085', '221417550', '222964733')
+	ORDER BY EncounterEpicCsn, StartInstant*/
+
+
+--------------------------------------------------------------
+-- Level of Care Change (MedSurg to ICU/PCU) -2 
+--------------------------------------------------------------
+drop table if exists #MINDSwithLOCChange2
+CREATE TABLE #MINDSwithLOCChange2
+
+(
+EncounterEpicCsn			bigint not null,
+StartInstant				datetime,
+EndInstant					datetime,
+LevelOfCare					int,
+StartInstant2				datetime,
+EndInstant2					datetime,
+LevelOfCare2				int,
+IncreaseLOC                 int
+)
+
+;with MINDSLOC as (
+
+SELECT DISTINCT
+    m.EncounterEpicCsn,
+	m.StartInstant,		
+	m.EndInstant,							
+	CASE
+		WHEN m.DepartmentName like '%EMERGENCY%' THEN 2
+		WHEN m.LevelOfCare like 'Intermediate/Stepdown' THEN 1
+		WHEN m.LevelOfCare like 'ICU' THEN 2
+		ELSE 0
+	END AS LevelOfCare,	
+	pe.StartInstant AS StartInstant2,		
+	pe.EndInstant AS EndInstant2,
+	CASE
+		WHEN m.DepartmentName like '%EMERGENCY%' THEN 2
+		WHEN pe.LevelOfCare like 'Intermediate/Stepdown' THEN 1
+		WHEN pe.LevelOfCare like 'ICU' THEN 2
+		ELSE 0
+	END AS LevelOfCare2
+
+FROM #MINDSwithLOCChange m
+	INNER JOIN PatientEventFactX pe ON m.EncounterEpicCsn = pe.PatientEncounterCSNId 
+	AND  m.StartInstant = pe.EndInstant
+	LEFT JOIN DepartmentDim dep ON pe.CensusLocationKey = dep.DepartmentKey
+)
+
+INSERT INTO #MINDSwithLOCChange2
+
+SELECT EncounterEpicCsn,
+StartInstant,			
+EndInstant,							
+LevelOfCare,
+StartInstant2,
+EndInstant2,
+LevelOfCare2
+, CASE 
+	WHEN LevelofCare - LevelofCare2 > 0 
+	THEN 1 
+	ELSE 0 
+END AS IncreaseLOC
+
+from MINDSLOC
+
+ORDER BY EncounterEpicCsn, StartInstant
+
+	/*SELECT * from #MINDSwithLOCChange2
+	--WHERE EncounterEpicCsn IN ('221561865', '221756040', '222206085', '221417550', '222964733')
+	ORDER BY EncounterEpicCsn, StartInstant*/
+
+--------------------------------------------------------------
+-- Level of Care Change (MedSurg to ICU/PCU) -2 
+--------------------------------------------------------------
+
+CREATE TABLE #MINDSwithLOCChange2_EncounterLevel
+
+(
+EncounterEpicCsn			bigint not null,
+IncreaseLOCFlag                 int
+)
+
+;with MINDSLOCChange2 as (
+
+SELECT 
+  m.EncounterEpicCsn
+  ,Sum(m.IncreaseLOC) AS IncreaseLOCTotal
+
+FROM #MINDSwithLOCChange2 as m
+GROUP BY EncounterEpicCsn
+
+)
+
+INSERT INTO #MINDSwithLOCChange2_EncounterLevel
+
+SELECT EncounterEpicCsn,
+CASE WHEN
+	IncreaseLOCTotal>0 
+	THEN 1 
+	ELSE 0
+	END AS IncreaseLOCFlag
+
+from MINDSLOCChange2
+
+ORDER BY EncounterEpicCsn
+
+/*Select * FROM
+#MINDSwithLOCChange2_EncounterLevel*/
+
+
+-------------------------------------
+--met rrt
+-------------------------------------
+USE [Analytics]
+drop table if exists #MET
+drop table if exists #MET2
+drop table if exists #MINDSwithMET_EncounterLevel
+
+declare @StartDateDTTM as datetime,@StartDate date = '2021-06-28'
+
+set @StartDateDTTM = coalesce(@StartDate,(select dateadd(day,-7,CONVERT(DATE,getdate()))))
+
+Create table #MINDSwithMET_EncounterLevel
+(
+EncounterEpicCsn				bigint not null,
+MET_RRT_Flag                    int
+)
+
+Create table #MET 
+(
+FlowsheetValueKey	bigint not null,
+EncounterKey		bigint not null,
+EncounterEpicCsn	bigint not null,
+PatientDurableKey	bigint not null,
+TakenInstant		datetime not null,
+TakenDateKey		bigint not null
+)
+
+insert #MET
+
+SELECT 
+FlowsheetValueKey
+,EncounterKey
+,EncounterEpicCsn
+,PatientDurableKey	
+,TakenInstant		
+,TakenDateKey		
+
+FROM ( 
+	select 
+	  fvf.FlowsheetValueKey,
+		fvf.EncounterKey,
+		enc.EncounterEpicCsn,
+		pat.DurableKey as PatientDurableKey,
+		fvf.TakenInstant ,
+		convert(bigint,YEAR(TakenInstant) * 10000 + MONTH(TakenInstant) * 100 + DAY(TakenInstant)) as TakenDateKey,
+		ROW_NUMBER() over(PARTITION BY FVF.EncounterKey,fvf.datekey,fvf.timeofdaykey ORDER BY FlowsheetRowEpicId) as flowRow
+
+	from cdw.FullAccess.FlowsheetValueFact fvf (NOLOCK)
+	join cdw.FullAccess.FlowsheetTemplateDim td (NOLOCK) on td.FlowsheetTemplateKey = fvf.FlowsheetTemplateKey
+	join cdw.FullAccess.FlowsheetRowDim rd (NOLOCK) on rd.FlowsheetRowKey = fvf.FlowsheetRowKey
+	join cdw.FullAccess.DateDim dd  (NOLOCK) on fvf.DateKey = dd.DateKey
+	JOIN CDW.FullAccess.PatientDim PAT ON PAT.PatientKey = FVF.PatientKey
+	JOIN CDW.FullAccess.EncounterFact Enc (NOLOCK) on Enc.EncounterKey = fvf.EncounterKey
+
+	WHERE (
+				(rd.FlowsheetRowEpicId = '3044500575' --R UCH IP MET STROKE ALERT	Was a stroke alert activated?
+					and value = 'No')
+				or 
+				(rd.FlowsheetRowEpicId IN ('3044500580')-- R UCH IP MET STROKE EWS TYPE OF EMERGENCY	Type of Emergency
+					and  value = 'MET/RRT')
+			)
+			and TakenInstant >= @StartDateDTTM
+	) MT 
+
+ where flowRow = 1
+
+
+
+select 
+  fvf.FlowsheetValueKey,
+	fvf.EncounterKey,
+	Enc.EncounterEpicCsn,
+	pat.DurableKey as PatientDurableKey,
+	fvf.TakenInstant ,
+	YEAR(TakenInstant) * 10000 + MONTH(TakenInstant) * 100 + DAY(TakenInstant) as TakenDateKey
+	,ROW_NUMBER() over(PARTITION BY FVF.EncounterKey, fvf.datekey,fvf.timeofdaykey ORDER BY FlowsheetValueKey) as flowRow
+
+into #MET2
+from cdw.FullAccess.FlowsheetValueFact fvf (NOLOCK)
+join cdw.FullAccess.FlowsheetTemplateDim td (NOLOCK) on td.FlowsheetTemplateKey = fvf.FlowsheetTemplateKey
+join cdw.FullAccess.FlowsheetRowDim rd (NOLOCK) on rd.FlowsheetRowKey = fvf.FlowsheetRowKey
+join cdw.FullAccess.DateDim dd  (NOLOCK) on fvf.DateKey = dd.DateKey
+JOIN CDW.FullAccess.PatientDim PAT ON PAT.PatientKey = FVF.PatientKey
+JOIN CDW.FullAccess.EncounterFact Enc (NOLOCK) on Enc.EncounterKey = fvf.EncounterKey
+
+
+WHERE rd.FlowsheetRowEpicId IN 
+	(
+	
+'3042000451' --	R UCH IP MET TIME OF ARRIVAL;	Time of Team Arrival
+,'3042000634' --	R UCH IP MET TRANSFER STATUS;	Patient's Location After MET/RRT Call
+,'3042000635' --	R UCH IP MET PT REQUIRE INTUBATION;	Did patient require intubation?
+,'3042000636' --	R UCH IP MET CARIOPULMONARY ARREST;	Did the patient have a cardiac arrest?
+--,'3049000868' --	R UCH IP MET SEVERE SEPSIS ACTIONS TAKEN;	Sepsis Actions Taken
+,'3044500572' --	R UCH IP MET INDICATIONS;	Indications
+,'3044500573' --	R UCH IP MET INTERVENTIONS;	Interventions
+,'3044500574' --	R UCH IP MET TEAM MEMBERS PRESENT;	MET/RRT Team Members Present
+,'3044500577' --	R UCH IP MET DURATION;	Duration of MET/RRT in Minutes
+
+	)
+
+
+AND fvf.Value <> ''
+
+AND not exists (
+			select * 
+			from #MET m 
+			where m.EncounterKey = FVF.EncounterKey 
+				and fvf.TakenInstant between m.TakenInstant and dateadd(hour, 12,m.TakenInstant)
+			)
+
+AND TakenInstant >= @StartDateDTTM
+
+
+INSERT #MET
+
+select 
+
+FlowsheetValueKey
+,EncounterKey
+,EncounterEpicCsn
+,PatientDurableKey	
+,TakenInstant		
+,TakenDateKey	
+ 
+from #MET2
+where flowRow = 1
+AND NOT exists (	select 
+		1
+		from cdw.FullAccess.FlowsheetValueFact fvf (NOLOCK)
+		join cdw.FullAccess.FlowsheetRowDim rd (NOLOCK) on rd.FlowsheetRowKey = fvf.FlowsheetRowKey 
+	where rd.FlowsheetRowEpicId = '3049000868' --R UCH IP MET SEVERE SEPSIS ACTIONS TAKEN;	Sepsis Actions Taken
+	and Value = 'New positive, initiate sepsis alert'
+	and fvf.encounterkey =#met2.encounterkey
+	and fvf.TakenInstant between #met2.TakenInstant and dateadd(minute,120,#met2.TakenInstant) 
+	
+	)
+
+
+
+;with 
+lookback as 
+(
+	select 
+
+
+	FlowsheetValueKey
+	,EncounterKey
+	,EncounterEpicCsn
+	,PatientDurableKey	
+	,TakenInstant		
+	,lag(TakenInstant,1,null) over(partition by EncounterKey order by takeninstant) as priortaken
+
+	,lag(TakenInstant,2,null) over(partition by EncounterKey order by takeninstant) as Twopriortaken
+	,TakenDateKey	
+
+	from #MET
+)
+,final as 
+(
+	select * 
+	from lookback
+	where --Twopriortaken <> '1901-01-01 00:00:00.000'
+	(priortaken is null 
+		or datediff(minute,priortaken,takeninstant) > 60*6 
+		or ( datediff(minute,Twopriortaken,priortaken) < 60*6
+			and datediff(minute,Twopriortaken,takeninstant) > 60*6 )
+	)
+)
+,Allrows as
+(	select 
+		FlowsheetValueKey	
+		,EncounterKey
+		,EncounterEpicCsn
+		,PatientDurableKey	
+		,TakenInstant
+		,TakenDateKey
+	from final
+)
+
+, METRRT as (
+
+select 
+	[EncounterEpicCsn]
+	,COUNT(EncounterKey)  as MET_RRT_Flag
+	from Allrows a
+	GROUP BY EncounterEpicCsn
+)
+
+INSERT INTO #MINDSwithMET_EncounterLevel
+
+SELECT EncounterEpicCsn,
+CASE WHEN
+	MET_RRT_Flag>0 
+	THEN 1 
+	ELSE 0
+	END AS MET_RRT_Flag
+
+from METRRT
+
+ORDER BY EncounterEpicCsn
+
+/*SELECT * FROM #MINDSwithMET_EncounterLevel*/
+
+---------------------------------------------------------------
+--  JOIN ASSESSMENTS AND EVENT DEPARTMENTS
+--  Identify the events and assessment times that are closest in order to capture the department where assessment was taken
+---------------------------------------------------------------
+USE CDW
+drop table if exists #MINDS_SCORES_WITH_DEPT
+CREATE TABLE #MINDS_SCORES_WITH_DEPT
+
+(
+EncounterEpicCsn			bigint not null,
+PrimaryMrn					bigint not null,
+AdmitDate					date null,
+AdmissionInstant			datetime null,
+AdmitDepartment				nvarchar(300) null,
+DischargeDate				date null,
+DischargeInstant			datetime null,
+DischargeDeptName           nvarchar(300) null,
+DischargeDisposition        nvarchar(300),
+LocationName				nvarchar (100) null,
+LengthOfStay				bigint null,
+TakenInstant				datetime null,
+TimeOfDayKey				bigint not null,
+Value						bigint not null,
+DisplayName					nvarchar(300) not null,
+FlowsheetRowEpicId			nvarchar(50) not null,
+InitialScore				bigint not null,
+InitialTakenInstant			datetime null,
+InitialDepartment			nvarchar(300) not null,
+MaxScore					bigint not null,
+MaxTakenInstant				datetime null,
+MaxDepartment				nvarchar(300) not null,
+Encounter_Count				tinyint not null,
+Intubation					tinyint,
+)
+
+
+; WITH MINDS_W_DEPT AS
+
+(
+
+	SELECT
+	m.EncounterEpicCsn
+	,m.PrimaryMrn
+	,m.AdmitDate
+	,m.AdmissionInstant
+	,m.AdmitDepartment
+	,m.DischargeDate
+	,m.DischargeInstant
+	,m.DischargeDeptName
+	,m.DischargeDisposition
+	,m.LocationName
+	,m.LengthOfStay
+	,m.TakenInstant
+	,m.TimeOfDayKey
+	,m.Value
+	,m.DisplayName
+	,m.FlowsheetRowEpicId
+	,m.InitialScore
+	,m.InitialTakenInstant
+	,intdep.InitialDepartment
+	,m.MaxScore
+	,m.MaxTakenInstant
+	,maxdep.MaxDepartment
+	,m.Encounter_Count							
+	,ROW_NUMBER() OVER (PARTITION BY m.EncounterEpicCSN, m.TakenInstant ORDER BY ABS(DATEDIFF(mi, m.TakenInstant, d.EventInstant))) AS rowNum
+	,Intubation
+
+	FROM #MINDS_with_scores m
+	INNER JOIN #MINDSDEPT d ON m.EncounterEpicCsn = d.PatientEventCSN
+	INNER JOIN DepartmentDim dd ON d.DepartmentKey = dd.DepartmentKey
+	INNER JOIN #InitialMINDSDEPT intdep ON m.EncounterEpicCsn = intdep.EncounterEpicCsn
+	INNER JOIN #MAXMINDSDEPT maxdep ON m.EncounterEpicCsn = maxdep.EncounterEpicCsn
+	LEFT JOIN #Intubation intub ON m.EncounterEpicCsn = intub.EncounterEpicCsn
+
+)
+
+INSERT INTO #MINDS_SCORES_WITH_DEPT
+
+SELECT
+EncounterEpicCsn
+	,PrimaryMrn
+	,AdmitDate
+	,AdmissionInstant
+	,AdmitDepartment
+	,DischargeDate
+	,DischargeInstant
+	,DischargeDeptName
+	,DischargeDisposition
+	,LocationName
+	,LengthOfStay
+    ,TakenInstant
+	,TimeOfDayKey
+	,Value
+	,DisplayName
+	,FlowsheetRowEpicId
+	,InitialScore
+	,InitialTakenInstant
+	,InitialDepartment
+	,MaxScore
+	,MaxTakenInstant
+	,MaxDepartment
+	,Encounter_Count
+	,Intubation
+
+FROM MINDS_W_DEPT
+
+WHERE rowNum = 1
+
+ORDER BY 
+EncounterEpicCsn,
+TakenInstant
+
+Select * from #MINDS_SCORES_WITH_DEPT
+
+
+--------------------------------------------------------------
+-- Select Distinct Patient Cases from Report
+--------------------------------------------------------------
+drop table if exists #MINDS_PATIENTS_WITH_DEPT
+
+CREATE TABLE #MINDS_PATIENTS_WITH_DEPT
+
+(
+EncounterEpicCsn			bigint not null,
+PrimaryMrn					bigint not null,
+LocationName				nvarchar (100) not null,
+AdmitDate					date null,
+AdmissionInstant			datetime null,
+AdmitDepartment				nvarchar(300) not null,
+DischargeDate				date null,
+DischargeInstant			datetime null,
+DischargeDeptName           nvarchar(300) not null,
+DischargeDisposition		nvarchar(300),
+LengthOfStay			    bigint null,
+InitialScore				bigint not null,
+InitialTakenInstant			datetime null,
+InitialDepartment			nvarchar(300) not null,
+MaxScore					bigint not null,
+MaxTakenInstant				datetime null,
+MaxDepartment				nvarchar(300) not null,
+Patient_Count				tinyint not null,
+Intubation					tinyint,
+IncreaseLOCFlag				tinyint,
+MET_RRT_Flag					tinyint
+)
+
+
+; WITH MINDS_PATIENTS_DEPT AS
+
+(
+
+	SELECT DISTINCT
+	m.EncounterEpicCsn				
+	,m.PrimaryMrn						
+	,m.LocationName	
+	,m.AdmitDate
+	,m.AdmissionInstant
+    ,m.AdmitDepartment				
+	,m.DischargeDate
+	,m.DischargeInstant
+	,m.DischargeDeptName
+	,m.DischargeDisposition
+	,m.LengthOfStay
+	,m.InitialScore
+	,m.InitialTakenInstant
+	,m.InitialDepartment
+	,m.MaxScore
+	,m.MaxTakenInstant
+	,m.MaxDepartment
+	,m.Encounter_Count as Patient_Count
+	,m.Intubation
+	,loc.IncreaseLOCFlag
+	,mr.MET_RRT_Flag
+
+	FROM #MINDS_SCORES_WITH_DEPT m
+	INNER JOIN #MINDSwithLOCChange2_EncounterLevel as loc ON m.EncounterEpicCsn=loc.EncounterEpicCsn
+	LEFT JOIN #MINDSwithMET_EncounterLevel as mr ON m.EncounterEpicCsn=mr.EncounterEpicCsn
+
+)
+
+INSERT INTO #MINDS_PATIENTS_WITH_DEPT
+
+SELECT DISTINCT
+
+	EncounterEpicCsn				
+	,PrimaryMrn								
+	,LocationName
+	,AdmitDate
+	,AdmissionInstant
+	,AdmitDepartment
+	,DischargeDate
+	,DischargeInstant
+	,DischargeDeptName
+	,DischargeDisposition
+	,LengthOfStay
+	,InitialScore
+	,InitialTakenInstant
+	,InitialDepartment
+	,MaxScore
+	,MaxTakenInstant
+	,MaxDepartment
+	,Patient_Count
+	,Intubation
+	,IncreaseLOCFlag
+	,MET_RRT_Flag
+
+FROM MINDS_PATIENTS_DEPT
+
+ORDER BY 
+EncounterEpicCsn
+
+Select * from #MINDS_PATIENTS_WITH_DEPT
+
+
