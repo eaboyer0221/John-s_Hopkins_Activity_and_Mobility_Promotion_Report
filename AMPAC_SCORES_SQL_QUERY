@@ -1,0 +1,39 @@
+
+/********************************************************************************************************
+ * (PROCEDURE/FUNCTION/VIEW):     AMPAC SCORES                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *
+ *
+ *                                                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *
+ * Created by:    Emily Boyer                                  Created on: 08/06/2021                   *
+ *                                                                                                      *
+ *                                                                                                      *
+ *                                                                                                      *                                         *
+ ********************************************************************************************************/
+
+SELECT
+    Encounter.EncounterEpicCsn
+	,Encounter.DepartmentKey
+	,Dept.DepartmentEpicId
+	--,FlowsheetValue.*
+    --,FlowsheetRow.*
+    --,FlowsheetTemplate.*
+	,FlowsheetValue.DateKey
+	,FlowsheetValue.TimeOfDayKey
+	,FlowsheetValue.TakenInstant
+	,FlowsheetValue.Value
+	,Flowsheetrow.Name
+	,FlowsheetRow.DisplayName
+	,FlowsheetRow.FlowsheetRowEpicId
+
+FROM
+    CDW.dbo.FlowsheetValueFact AS FlowsheetValue
+    INNER JOIN CDW.dbo.EncounterFact AS Encounter ON FlowsheetValue.EncounterKey=Encounter.EncounterKey
+	INNER JOIN CDW.dbo.DepartmentDim AS Dept ON Encounter.DepartmentKey=Dept.DepartmentKey
+    INNER JOIN CDW.dbo.FlowsheetRowDim AS FlowsheetRow ON FlowsheetValue.FlowsheetRowKey=FlowsheetRow.FlowsheetRowKey
+    INNER JOIN CDW.dbo.FlowsheetTemplateDim AS FlowsheetTemplate ON FlowsheetValue.FlowsheetTemplateKey=FlowsheetTemplate.FlowsheetTemplateKey
+WHERE
+	FlowsheetRow.FlowsheetRowEpicId in ('3046501340')
